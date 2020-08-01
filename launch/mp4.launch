@@ -6,7 +6,7 @@
   <arg name="camera_info_url" default="file:///$(find image_pub)/param/camera.yaml"/>
   <arg name="camera_info_topic" default="/camera/camera_info"/>
   <arg name="image_topic" default="/camera_front_image_raw"/>
-  <arg name="pub_rate" default="5.0"/>
+  <arg name="pub_rate" default="24.0"/>
   <arg name="start_sec" default="0"/>
   <arg name="repeat" default="true"/>
 

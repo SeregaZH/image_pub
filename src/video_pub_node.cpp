@@ -59,6 +59,8 @@ int main(int argc, char **argv)
 
         ros::Rate rate(pub_rate);
 
+        char* file_path = (char*)malloc(256);
+
         while (ros::ok())
         {
             DIR* dirp = opendir(video_path.c_str());
@@ -78,7 +80,8 @@ int main(int argc, char **argv)
                     continue;
                 }
                 
-                char* file_path = strcat(strcat((char*)(video_path).c_str(), "/"), dp->d_name);
+                stpcpy(file_path, (char*)video_path.c_str());
+                file_path = strcat(strcat(file_path, "/"), dp->d_name);
 
                 ROS_INFO("Video file %s has been read", file_path);
                 cv::VideoCapture vid_cap(file_path);
