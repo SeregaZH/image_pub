@@ -7,8 +7,13 @@
 #include <sensor_msgs/CameraInfo.h>
 
 #include <opencv2/opencv.hpp>
-#include <filesystem>
-namespace fs = std::filesystem;
+#include <sys/types.h>
+#include <dirent.h>
+
+bool endsWith(const std::string& s, const std::string& suffix)
+{
+    return (int)s.rfind(suffix) == std::abs((int)(s.size()-suffix.size()));
+}
 
 int main(int argc, char **argv)
 {
@@ -37,85 +42,115 @@ int main(int argc, char **argv)
     ROS_INFO("CTopic : %s", camera_topic.c_str());
     ROS_INFO("ITopic : %s", camera_info_topic.c_str());
     ROS_INFO("CI URL : %s", camera_info_url.c_str());
-    ROS_INFO("Source : %s", img_path.c_str());
+    ROS_INFO("Source : %s", video_path.c_str());
     ROS_INFO("Rate   : %.1f", pub_rate);
     ROS_INFO("Start  : %d", start_sec);
     ROS_INFO("Repeat : %s", repeat ? "yes" : "no");
     ROS_INFO("FrameID: %s", frame_id.c_str());
-
-    camera_info_manager::CameraInfoManager camera_info_manager(nh);
-    if (camera_info_manager.validateURL(camera_info_url))
-        ROS_INFO("Valid camera_info_url: %s", camera_info_url.c_str());
-        camera_info_manager.loadCameraInfo(camera_info_url);
-
-    ros::Publisher img_pub  = nh.advertise<sensor_msgs::Image>(camera_topic, 1);
-    ros::Publisher info_pub = nh.advertise<sensor_msgs::CameraInfo>(camera_info_topic, 1);
-
-    ros::Rate rate(pub_rate);
-    while (ros::ok())
+    try
     {
-        for (const auto & entry : fs::directory_iterator(video_path)) 
-        {
-            cv::VideoCapture vid_cap(entry.path().u8string());
-            if (start_sec > 0)
-                vid_cap.set(CV_CAP_PROP_POS_MSEC, 1000.0 * start_sec);
+        camera_info_manager::CameraInfoManager camera_info_manager(nh);
+        if (camera_info_manager.validateURL(camera_info_url))
+            ROS_INFO("Valid camera_info_url: %s", camera_info_url.c_str());
+            camera_info_manager.loadCameraInfo(camera_info_url);
 
-            if (!vid_cap.isOpened())
+        ros::Publisher img_pub  = nh.advertise<sensor_msgs::Image>(camera_topic, 1);
+        ros::Publisher info_pub = nh.advertise<sensor_msgs::CameraInfo>(camera_info_topic, 1);
+
+        ros::Rate rate(pub_rate);
+
+        while (ros::ok())
+        {
+            DIR* dirp = opendir(video_path.c_str());
+            
+            if (!dirp) 
             {
-                ROS_ERROR("Cannot read video. Try moving video file to sample directory.");
-                return -1;
+                ROS_ERROR("Unable to open directory: %s", video_path.c_str());
             }
             
+            struct dirent * dp;
+            dp = readdir(dirp);
 
-            while (ros::ok()) 
+            while((dp = readdir(dirp)) != NULL) 
             {
-                cv::Mat img;
-                bool image_captured = vid_cap.read(img);
-                if (!image_captured)
+                if (!endsWith(dp->d_name, ".mp4"))
                 {
-                    break;
+                    continue;
                 }
-                else
+                
+                char* file_path = strcat(strcat((char*)(video_path).c_str(), "/"), dp->d_name);
+
+                ROS_INFO("Video file %s has been read", file_path);
+                cv::VideoCapture vid_cap(file_path);
+                if (start_sec > 0)
+                    vid_cap.set(CV_CAP_PROP_POS_MSEC, 1000.0 * start_sec);
+
+                if (!vid_cap.isOpened())
                 {
-                    //ROS_DEBUG("Image: %dx%dx%d, %zu, %d", img.rows, img.cols, img.channels(), img.elemSize(), img.type() == CV_8UC3);
-                    if (img.type() != CV_8UC3)
-                        img.convertTo(img, CV_8UC3);
-                    // Convert image from BGR format used by OpenCV to RGB.
-                    cv::cvtColor(img, img, CV_BGR2RGB);
+                    ROS_ERROR("Cannot read video. Try moving video file to sample directory.");
+                    return -1;
+                }
+                
 
-                    auto img_msg = boost::make_shared<sensor_msgs::Image>();
-                    img_msg->header.stamp    = ros::Time::now();
-                    img_msg->header.frame_id = frame_id;
-                    img_msg->encoding = "rgb8";
-                    img_msg->width = img.cols;
-                    img_msg->height = img.rows;
-                    img_msg->step = img_msg->width * img.channels();
-                    auto ptr = img.ptr<unsigned char>(0);
-                    img_msg->data = std::vector<unsigned char>(ptr, ptr + img_msg->step * img_msg->height);
-                    img_pub.publish(img_msg);
-
-                    if (camera_info_manager.isCalibrated())
+                while (ros::ok()) 
+                {
+                    cv::Mat img;
+                    bool image_captured = vid_cap.read(img);
+                    if (!image_captured)
                     {
-                        auto info = boost::make_shared<sensor_msgs::CameraInfo>(camera_info_manager.getCameraInfo());
-                        info->header = img_msg->header;
-                        info_pub.publish(info);
+                        break;
                     }
                     else
                     {
-                        ROS_DEBUG("Camera not calibrated");
+                        //ROS_DEBUG("Image: %dx%dx%d, %zu, %d", img.rows, img.cols, img.channels(), img.elemSize(), img.type() == CV_8UC3);
+                        if (img.type() != CV_8UC3)
+                            img.convertTo(img, CV_8UC3);
+                        // Convert image from BGR format used by OpenCV to RGB.
+                        cv::cvtColor(img, img, CV_BGR2RGB);
+
+                        auto img_msg = boost::make_shared<sensor_msgs::Image>();
+                        img_msg->header.stamp    = ros::Time::now();
+                        img_msg->header.frame_id = frame_id;
+                        img_msg->encoding = "rgb8";
+                        img_msg->width = img.cols;
+                        img_msg->height = img.rows;
+                        img_msg->step = img_msg->width * img.channels();
+                        auto ptr = img.ptr<unsigned char>(0);
+                        img_msg->data = std::vector<unsigned char>(ptr, ptr + img_msg->step * img_msg->height);
+                        img_pub.publish(img_msg);
+
+                        if (camera_info_manager.isCalibrated())
+                        {
+                            auto info = boost::make_shared<sensor_msgs::CameraInfo>(camera_info_manager.getCameraInfo());
+                            info->header = img_msg->header;
+                            info_pub.publish(info);
+                        }
+                        else
+                        {
+                            ROS_DEBUG("Camera not calibrated");
+                        }
                     }
+                    //ROS_DEBUG("Image: %d", image_captured);
+                    ros::spinOnce();
+                    rate.sleep();
                 }
-                //ROS_DEBUG("Image: %d", image_captured);
-                ros::spinOnce();
-                rate.sleep();
+
             }
 
+            closedir(dirp);
+            if(!repeat) 
+            {
+                return 0;
+            }
         }
-
-        if(!repeat) 
-        {
-            return 0;
-        } 
+    }
+    catch (const std::exception& ex)
+    {
+      ROS_ERROR("Error occured: %s ", ex.what());
+    }
+    catch (...) 
+    {
+        ROS_ERROR("Error occured");
     }
 
     return 0;
