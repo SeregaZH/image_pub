@@ -71,7 +71,6 @@ int main(int argc, char **argv)
             }
             
             struct dirent * dp;
-            dp = readdir(dirp);
 
             while((dp = readdir(dirp)) != NULL) 
             {
