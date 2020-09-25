@@ -10,6 +10,12 @@
 #include <sys/types.h>
 #include <dirent.h>
 
+// The contant is substitute of enum value CV_CAP_PROP_POS_MSEC
+// The value is not compatible with different version of OPEN CV
+// We temporary hardcode the constant. Later it should be replaced with more relaible code to support 
+// different opencv versions
+#define CV_CAP_PROP_POS_MSEC_SUBSTITUTE 0
+
 bool endsWith(const std::string& s, const std::string& suffix)
 {
     return (int)s.rfind(suffix) == std::abs((int)(s.size()-suffix.size()));
@@ -71,13 +77,17 @@ int main(int argc, char **argv)
             }
             
             struct dirent * dp;
+            bool isVideoExist = false;
 
-            while((dp = readdir(dirp)) != NULL) 
+            while((dp = readdir(dirp)) != NULL && ros::ok()) 
             {
                 if (!endsWith(dp->d_name, ".mp4"))
                 {
                     continue;
                 }
+
+                // At least one video was founded
+                isVideoExist = true;
                 
                 stpcpy(file_path, (char*)video_path.c_str());
                 file_path = strcat(strcat(file_path, "/"), dp->d_name);
@@ -85,7 +95,7 @@ int main(int argc, char **argv)
                 ROS_INFO("Video file %s has been read", file_path);
                 cv::VideoCapture vid_cap(file_path);
                 if (start_sec > 0)
-                    vid_cap.set(CV_CAP_PROP_POS_MSEC, 1000.0 * start_sec);
+                    vid_cap.set(CV_CAP_PROP_POS_MSEC_SUBSTITUTE, 1000.0 * start_sec);
 
                 if (!vid_cap.isOpened())
                 {
@@ -108,7 +118,11 @@ int main(int argc, char **argv)
                         if (img.type() != CV_8UC3)
                             img.convertTo(img, CV_8UC3);
                         // Convert image from BGR format used by OpenCV to RGB.
-                        cv::cvtColor(img, img, CV_BGR2RGB);
+                        #if (CV_VERSION_MAJOR >= 4) 
+                            cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+                        #else
+                            cv::cvtColor(img, img, CV_BGR2RGB); 
+                        #endif
 
                         auto img_msg = boost::make_shared<sensor_msgs::Image>();
                         img_msg->header.stamp    = ros::Time::now();
@@ -140,8 +154,9 @@ int main(int argc, char **argv)
             }
 
             closedir(dirp);
-            if(!repeat) 
+            if(!repeat || !isVideoExist)
             {
+                ROS_INFO("The video directory was read to the end. Check that repeat option are specified or video files exist in the folder");
                 return 0;
             }
         }
